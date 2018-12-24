@@ -849,3 +849,260 @@ void run_detector(int argc, char **argv)
     //else if(0==strcmp(argv[2], "extract")) extract_detector(datacfg, cfg, weights, cam_index, filename, class, thresh, frame_skip);
     //else if(0==strcmp(argv[2], "censor")) censor_detector(datacfg, cfg, weights, cam_index, filename, class, thresh, frame_skip);
 }
+
+void show_q_predict_help()
+{
+  printf("\n\n Usage: q_predict cfg_file weight_file image_root predict_list ext_fn(png) yolo_th out_file \n\n");
+}
+void q_skip_one_line( FILE *fp )
+{
+	int data;
+	do {data = fgetc (fp);}
+	while ((data != EOF) && (data != '\n'));
+	fscanf (fp, "\n"); //for fix while(!feof(fp)) problem
+}
+inline const int q_mround_d( const double a )
+{
+   return (int)( a + (a > 0 ? 0.5 : -0.5) );
+}
+struct Q_YOLO_OBJ
+{
+  int x1, y1, x2, y2;
+  int id; //[1..n]
+  float score;
+};
+void q_predict(int argc, char **argv)
+{
+  if( argc != 9 )
+  {
+    show_q_predict_help();
+    return;
+  }
+
+  FILE* fp_list = fopen( argv[ 5 ], "rt" );
+  if( ! fp_list )
+  {
+    printf("\n\n Error opening predict list file <%s> \n\n", argv[ 4 ] );
+    exit(0);
+  }
+
+  FILE* fp_out = fopen( argv[ 8 ], "wt" );
+  if( ! fp_out )
+  {
+    printf("\n\n Error opening out_file <%s> \n\n", argv[ 8 ] );
+    exit(0);
+  }
+
+  network *net = load_network(//cfgfile, weightfile, 0);
+    argv[ 2 ], argv[ 3 ], 0);
+
+  set_batch_network(net, 1);
+
+  char* str1 = (char*)malloc( 2000 );
+  char* str2 = (char*)malloc( 2000 );
+
+  int max_det_num = 10000;
+  struct Q_YOLO_OBJ* det_arr = (struct Q_YOLO_OBJ*)malloc( sizeof(struct Q_YOLO_OBJ) * max_det_num );
+
+  int img_num = 0;
+
+float nms=.45;
+
+float hier_thresh = 0.5;
+
+float thresh = atof( argv[ 7 ] );
+
+  //double sum_ms = 0.0;
+  //int sum_ms_cnt = 0;
+
+  printf("\n cfg file = %s ", argv[ 2 ] );
+  printf("\n weight file = %s \n", argv[ 3 ] );
+
+  printf("\n image root = %s ", argv[ 4 ] );
+  printf("\n list file = %s ", argv[ 5 ] );
+  printf("\n ext fn = %s \n", argv[ 6 ] );
+
+  printf("\n thresh = %g \n", thresh );
+
+  printf("\n out file = %s \n", argv[ 8 ] );
+
+  printf("\n Start testing: \n\n");
+  while( ! feof( fp_list ) )
+  {
+    if( fscanf( fp_list, "%s", str1 ) != 1 )
+    {
+      printf("\n\n Error reading from predict list file \n\n");
+      exit(0);
+    }
+    q_skip_one_line( fp_list );
+
+    sprintf( str2, "%s/%s.%s", argv[ 4 ], str1, argv[ 6 ] );
+
+    img_num ++;
+
+    int det_num = 0;
+
+
+    image im = load_image_color(str2,0,0);
+    image sized = letterbox_image(im, net->w, net->h);
+    //image sized = resize_image(im, net->w, net->h);
+    //image sized2 = resize_max(im, net->w);
+    //image sized = crop_image(sized2, -((net->w - sized2.w)/2), -((net->h - sized2.h)/2), net->w, net->h);
+    //resize_network(net, sized.w, sized.h);
+    layer l = net->layers[net->n-1];
+
+    int class_num = l.classes;
+
+    float *X = sized.data;
+
+    //double t1=what_time_is_it_now();
+    network_predict(net, X);
+    //double t2=what_time_is_it_now();
+
+    //if( img_num > 3 )
+    //{
+    //  if( t1 <= t2 )
+    //  {
+    //    sum_ms += ( t2 - t1 );
+    //    sum_ms_cnt ++;
+    //  }
+    //}
+
+    //printf("%s: Predicted in %f seconds.\n", input, what_time_is_it_now()-time);
+    int nboxes = 0;
+    detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
+    //printf("%d\n", nboxes);
+    //if (nms) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
+    if (nms) do_nms_sort(dets, nboxes, l.classes, nms);
+    //draw_detections(im, dets, nboxes, thresh, names, alphabet, l.classes);
+
+
+    int img_width = im.w;
+    int img_height = im.h;
+
+    double r_dx = 0.0;
+    double r_dy = 0.0;
+    double r_scale_x = 1.0;
+    double r_scale_y = 1.0;
+
+    for(int i = 0; i < nboxes; ++i)
+    {
+       //int class_ = max_index(probs[i], class_num);
+       //float prob = probs[i][class_];
+
+       //int class_ = max_index(dets[i].prob, class_num);
+       //float prob = dets[i].prob[class_];
+
+       int max_class = -1;
+       float max_prob;
+       {
+          for(int c = 0; c < class_num; c++)
+          {
+             float prob = dets[ i ].prob[ c ];
+
+             if( -1 == max_class )
+             {
+                max_class = c;
+                max_prob = prob;
+             }
+             else if( max_prob < prob )
+             {
+                max_class = c;
+                max_prob = prob;
+             }
+          }
+       }
+       if( -1 == max_class )
+       {
+          printf("\n\n Error, max_class is -1 \n\n");
+          exit(0);
+       }
+
+       if(max_prob >= thresh)
+       {
+          //box b = boxes[i];
+          box b = dets[i].bbox;
+
+          double left_d  = ( ( (double)( b.x ) - (double)( b.w ) / 2.0 ) );
+          double right_d = ( ( (double)( b.x ) + (double)( b.w ) / 2.0 ) );
+          double top_d   = ( ( (double)( b.y ) - (double)( b.h ) / 2.0 ) );
+          double bottom_d = ( ( (double)( b.y ) + (double)( b.h ) / 2.0 ) );
+
+          left_d   -= r_dx;
+          right_d  -= r_dx;
+          top_d    -= r_dy;
+          bottom_d -= r_dy;
+
+          left_d   *= r_scale_x;
+          right_d  *= r_scale_x;
+          top_d    *= r_scale_y;
+          bottom_d *= r_scale_y;
+
+          int left   = q_mround_d( left_d   * (double)( img_width ) );
+          int right  = q_mround_d( right_d  * (double)( img_width ) );
+          int top    = q_mround_d( top_d    * (double)( img_height ) );
+          int bottom = q_mround_d( bottom_d * (double)( img_height ) );
+
+          if(left < 0) left = 0;
+          if(right >= img_width) right = img_width-1;
+          if(top < 0) top = 0;
+          if(bottom >= img_height) bottom = img_height-1;
+
+          if( det_num < max_det_num )
+          {
+             struct Q_YOLO_OBJ* obj = det_arr + det_num;
+             {
+                obj->x1 = left;
+                obj->y1 = top;
+                obj->x2 = right;
+                obj->y2 = bottom;
+
+                obj->id = max_class + 1;
+                {
+                   if( ( obj->id < 1 ) || ( obj->id > class_num ) )
+                   {
+                      printf("\n\n Error, id(%d) < 1 || id > class_num(%d) \n\n", obj->id, class_num);
+                      exit(0);
+                   }
+                }
+                obj->score = max_prob;
+             }
+             det_num ++;
+          }
+       }
+    }
+
+    printf("\r %d. %s, det %d ", img_num, str1, det_num );
+      //( sum_ms_cnt > 0 ) ? ( sum_ms / sum_ms_cnt ) : 0.0 );
+
+    fprintf( fp_out, "%s\t%d", str1, det_num );
+    for(int i = 0; i < det_num; i++)
+    {
+      fprintf( fp_out, "  %d %d %d %d %d %f",
+        det_arr[ i ].x1,
+        det_arr[ i ].y1,
+        det_arr[ i ].x2,
+        det_arr[ i ].y2,
+        det_arr[ i ].id,
+        det_arr[ i ].score );
+    }
+    fprintf( fp_out, "\n");
+
+    free_detections(dets, nboxes);
+
+    free_image(im);
+    free_image(sized);
+  }
+  printf("\n\n");
+
+  fclose( fp_list );
+
+  fflush( fp_out );
+  fclose( fp_out );
+
+  free_network(net);
+
+  free( str1 );
+  free( str2 );
+  free( det_arr );
+}
