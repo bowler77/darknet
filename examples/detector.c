@@ -852,7 +852,7 @@ void run_detector(int argc, char **argv)
 
 void show_q_predict_help()
 {
-  printf("\n\n Usage: q_predict cfg_file weight_file image_root predict_list ext_fn(png) yolo_th out_file \n\n");
+  printf("\n\n Usage: q_predict cfg_file weight_file image_root predict_list ext_fn(png) yolo_th out_file gpu_index(>= 0) \n\n");
 }
 void q_skip_one_line( FILE *fp )
 {
@@ -873,11 +873,15 @@ struct Q_YOLO_OBJ
 };
 void q_predict(int argc, char **argv)
 {
-  if( argc != 9 )
+  if( argc != 10 )
   {
     show_q_predict_help();
     return;
   }
+
+int gpu_idx = atoi( argv[ 9 ] );
+
+  cuda_set_device( gpu_idx );
 
   FILE* fp_list = fopen( argv[ 5 ], "rt" );
   if( ! fp_list )
@@ -925,6 +929,8 @@ float thresh = atof( argv[ 7 ] );
   printf("\n thresh = %g \n", thresh );
 
   printf("\n out file = %s \n", argv[ 8 ] );
+
+  printf("\n gpu_idx = %d \n", gpu_idx );
 
   printf("\n Start testing: \n\n");
   while( ! feof( fp_list ) )
