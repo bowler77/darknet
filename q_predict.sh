@@ -5,5 +5,5 @@
   predict_list.txt \
   png \
   0.001 \
-  xxx.txt \
+  xxx_out.txt \
   0 \
