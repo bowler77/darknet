@@ -1,5 +1,5 @@
 /home/jackie/darknet_yolov3/darknet q_predict \
-  xxx_test.cfg \
+  test.cfg \
   1.weights \
   ../images \
   predict_list.txt \
